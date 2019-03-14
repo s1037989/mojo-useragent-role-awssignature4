@@ -22,6 +22,11 @@ around build_tx => sub {
   my ($orig, $self) = (shift, shift);
   $self->transactor->add_generator(awssig4 => sub {
     my ($transactor, $tx, $config) = @_;
+    foreach ( keys %$config ) {
+      if ( my $cb = $transactor->generators->{$_} ) {
+        $transactor->$cb($tx, delete $config->{$_});
+      }
+    }
     my $aws = $self->new({%$config, _tx => $tx})->_parse_host;
     $tx->req->url->query(['Action' => $aws->action])
       unless $tx->req->url->query->param('Action');
@@ -140,14 +145,18 @@ transaction request.
 
 =head2 awssig4
 
-  $ua->get('https://ec2.amazonaws.com' => awssig4 => {action => 'DescribeVolumes'});
+  $ua->get($url => awssig4 => {action => 'DescribeVolumes'});
+  $ua->get($url => awssig4 => {action => 'DescribeVolumes', json => {a => 'b'}});
 
 Generate AWS authorization signature. See L<Mojo::UserAgent::Transactor/"tx">
 for more.
 
-Any parameters provided to this generator are passed as attributes to this
-module. Parses the requested host to detect the L</"service"> and L</"region">
-if not already specified.
+Any hash keys supplied to this generator that are themselves registered
+generators will be removed from the hash and processed, in no particular order.
+
+Any remaining hash keys supplied to this generator are passed as attributes to
+this module. The requested host is used to detect the L</"service"> and
+L</"region"> if not already specified.
 
 =head1 ATTRIBUTES
 
