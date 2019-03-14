@@ -254,8 +254,9 @@ The AWS API version to use. Defaults to 2016-11-15.
 
 =head1 CONTRIBUTORS
  
-This module is based on the original work L<Signer::AWSv4> by jlmartin.
- 
+This module is based on the original work of L<Signer::AWSv4> by JLMARTIN
+(Github: @pplu).
+
 =head1 COPYRIGHT AND LICENSE
 
 Copyright (C) 2019, Stefan Adams and others.
