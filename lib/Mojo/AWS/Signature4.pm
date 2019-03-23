@@ -65,7 +65,8 @@ sub sign_tx {
   $self->tx->req->url->query(['Version' => $self->version])
     unless $self->tx->req->url->query->param('Version');
   if ( $self->expires && !$self->authorization ) {
-    while ( my ($header, $value) = each %{$self->_authz_query} ) {
+    my %query = %{$self->_authz_query};
+    while ( my ($header, $value) = each %query ) {
       $self->tx->req->url->query([$header => $value])
         unless $self->tx->req->url->query->param($header);
     }
@@ -129,7 +130,6 @@ sub _parse_host {
   my $service = shift @parse;
   $service = shift @parse unless $service;
   my $region = shift @parse;
-  #warn $self->tx->req->url->host." - $service - $region";
   $self->region($region) if $region && !$self->region;
   die 'missing "region"' unless $self->region;
   $self->service($service) if $service && !$self->service;
@@ -294,6 +294,15 @@ Add the AWS Signature 4 authorization to the L<transaction|/"tx">.
 
 =head2 string_to_sign
  
+=head1 COMMON ERRORS
+
+=head2 Unable to determine service/operation name to be authorized
+
+The response body will contain this error message if the URL path doesn't
+match with the specified L</"action"> or if the request does not meet the
+requirements as defined by the AWS API (for example, missing a JSON request
+body when one is expected).
+
 =head1 CONTRIBUTORS
  
 This module is based on the original work of L<Signer::AWSv4> by JLMARTIN
