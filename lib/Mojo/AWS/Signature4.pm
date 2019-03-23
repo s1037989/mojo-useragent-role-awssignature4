@@ -20,6 +20,8 @@ has tx               => sub { die };
 has unsigned_payload => 0;
 has version          => '2016-11-15';
 
+has _header_list     => sub { [sort keys %{shift->tx->req->headers->to_hash}] };
+
 sub canonical_headers {
   my $self = shift;
   join '', map { lc($_) . ":" . $self->tx->req->headers->to_hash->{$_} . "\n" } @{$self->_header_list};
@@ -63,11 +65,14 @@ sub sign_tx {
   $self->tx->req->url->query(['Version' => $self->version])
     unless $self->tx->req->url->query->param('Version');
   if ( $self->expires && !$self->authorization ) {
-    $self->tx->req->url->query($self->_authz_query);
+    while ( my ($header, $value) = each %{$self->_authz_query} ) {
+      $self->tx->req->url->query([$header => $value])
+        unless $self->tx->req->url->query->param($header);
+    }
   } else {
     $self->tx->req->headers->header('X-Amz-Date' => $self->date_timestamp);
     $self->tx->req->headers->header('X-Amz-Expires' => $self->expires) if $self->expires;
-    $self->tx->req->headers->authorization($self->_authz_header);
+    $self->tx->req->headers->remove('Authorization')->authorization($self->_authz_header);
   }
   return $self->tx;
 };
@@ -107,25 +112,28 @@ sub _authz_header{
 
 sub _authz_query {
   my $self = shift;
-  [
+  {
     'X-Amz-Algorithm' => $self->aws_algorithm,
     'X-Amz-Credential' => url_escape($self->credential),
     'X-Amz-Date' => $self->date_timestamp,
     'X-Amz-Expires' => $self->expires,
     'X-Amz-SignedHeaders' => url_escape($self->signed_header_list),
     'X-Amz-Signature' => $self->signature,
-  ]
+  }
 }
-
-sub _header_list { [sort keys %{shift->tx->req->headers->to_hash}] }
 
 sub _parse_host {
   my $self = shift;
   $self->tx->req->url->host =~ /(([^\.]+)\.)?([^\.]+)\.amazonaws.com$/;
-  $self->service($3) if $3 && !$self->service;
-  die 'missing "service"' unless $self->service;
-  $self->region($2) if $2 && !$self->region;
+  my @parse = ($2, $3);
+  my $service = shift @parse;
+  $service = shift @parse unless $service;
+  my $region = shift @parse;
+  #warn $self->tx->req->url->host." - $service - $region";
+  $self->region($region) if $region && !$self->region;
   die 'missing "region"' unless $self->region;
+  $self->service($service) if $service && !$self->service;
+  die 'missing "service"' unless $self->service;
   return $self;
 }
 
