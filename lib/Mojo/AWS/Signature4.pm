@@ -7,7 +7,6 @@ use Digest::SHA;
 use Time::Piece;
 
 has access_key       => sub { $ENV{AWS_ACCESS_KEY} or die 'missing "access_key"' };
-has action           => sub { die 'missing "action"' };
 has authorization    => 1;
 has aws_algorithm    => 'AWS4-HMAC-SHA256';
 has expires          => undef;
@@ -18,9 +17,6 @@ has service          => undef;
 has time             => sub { gmtime };
 has tx               => sub { die };
 has unsigned_payload => 0;
-has version          => '2016-11-15';
-
-has _header_list     => sub { [sort keys %{shift->tx->req->headers->to_hash}] };
 
 sub canonical_headers {
   my $self = shift;
@@ -59,21 +55,14 @@ sub hashed_payload {
 sub sign_tx {
   my $self = shift;
   $self->_parse_host;
+  $self->_rewrite_host;
   $self->tx->req->headers->host($self->tx->req->url->host);
-  $self->tx->req->url->query(['Action' => $self->action])
-    unless $self->tx->req->url->query->param('Action');
-  $self->tx->req->url->query(['Version' => $self->version])
-    unless $self->tx->req->url->query->param('Version');
   if ( $self->expires && !$self->authorization ) {
-    my %query = %{$self->_authz_query};
-    while ( my ($header, $value) = each %query ) {
-      $self->tx->req->url->query([$header => $value])
-        unless $self->tx->req->url->query->param($header);
-    }
+    $self->tx->req->url->query($self->_authz_query);
   } else {
     $self->tx->req->headers->header('X-Amz-Date' => $self->date_timestamp);
     $self->tx->req->headers->header('X-Amz-Expires' => $self->expires) if $self->expires;
-    $self->tx->req->headers->remove('Authorization')->authorization($self->_authz_header);
+    $self->tx->req->headers->authorization($self->_authz_header);
   }
   return $self->tx;
 };
@@ -113,27 +102,36 @@ sub _authz_header{
 
 sub _authz_query {
   my $self = shift;
-  {
+  [
     'X-Amz-Algorithm' => $self->aws_algorithm,
     'X-Amz-Credential' => url_escape($self->credential),
     'X-Amz-Date' => $self->date_timestamp,
     'X-Amz-Expires' => $self->expires,
     'X-Amz-SignedHeaders' => url_escape($self->signed_header_list),
     'X-Amz-Signature' => $self->signature,
-  }
+  ]
 }
+
+sub _header_list { [sort keys %{shift->tx->req->headers->to_hash}] }
 
 sub _parse_host {
   my $self = shift;
+  #warn sprintf "url=%s region=%s service=%s", $self->tx->req->url->host, $self->region, $self->service;
   $self->tx->req->url->host =~ /(([^\.]+)\.)?([^\.]+)\.amazonaws.com$/;
-  my @parse = ($2, $3);
-  my $service = shift @parse;
-  $service = shift @parse unless $service;
-  my $region = shift @parse;
-  $self->region($region) if $region && !$self->region;
-  die 'missing "region"' unless $self->region;
-  $self->service($service) if $service && !$self->service;
-  die 'missing "service"' unless $self->service;
+  #warn sprintf "1=%s 2=%s 3=%s", $1, $2, $3;
+  if ( !$1 && !$2 ) {
+    $self->service($3) if !$self->service;
+  } elsif ( $1 && $2 && $3 ) {
+    $self->region($3) if !$self->region;
+    $self->service($2) if !$self->service;
+  }
+  #warn sprintf "region=%s service=%s", $self->region, $self->service;
+  return $self;
+}
+
+sub _rewrite_host {
+  my $self = shift;
+  $self->tx->req->url->host(join '.', $self->service, $self->region, 'amazonaws.com');
   return $self;
 }
 
@@ -167,13 +165,6 @@ Sign a request transaction with an AWS Signature version 4 authorization header.
 
 The API access key obtained from the AWS IAM user with programmatic access.
 Defaults to using the environment variable AWS_ACCESS_KEY.
-
-=head2 action
-
-  $action  = $awssig4->action;
-  $awssig4 = $awssig4->action($string);
-
-The action requested of the specified AWS L</"service">.
 
 =head2 authorization
 
@@ -257,13 +248,6 @@ This attribute is required.
 
 Don't sign the payload. Defaults to false.
 
-=head2 version
-
-  $version = $awssig4->version;
-  $awssig4 = $awssig4->version($string);
-
-The AWS API version to use. Defaults to 2016-11-15.
-
 =head1 METHODS
 
 =head2 canonical_headers
@@ -294,15 +278,6 @@ Add the AWS Signature 4 authorization to the L<transaction|/"tx">.
 
 =head2 string_to_sign
  
-=head1 COMMON ERRORS
-
-=head2 Unable to determine service/operation name to be authorized
-
-The response body will contain this error message if the URL path doesn't
-match with the specified L</"action"> or if the request does not meet the
-requirements as defined by the AWS API (for example, missing a JSON request
-body when one is expected).
-
 =head1 CONTRIBUTORS
  
 This module is based on the original work of L<Signer::AWSv4> by JLMARTIN
